@@ -27,7 +27,102 @@ app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
 
-# Define Models
+# Define Enums for Categories and Status
+class FeedbackCategory(str, Enum):
+    USER_INTERFACE = "user_interface"
+    SOCIAL_FEATURES = "social_features"
+    CONTENT = "content"
+    FUNCTIONALITY = "functionality"
+    PERFORMANCE = "performance"
+    SECURITY = "security"
+    ACCESSIBILITY = "accessibility"
+    OTHER = "other"
+
+class FeedbackStatus(str, Enum):
+    PENDING = "pending"
+    REVIEWED = "reviewed"
+    IN_PROGRESS = "in_progress"
+    RESOLVED = "resolved"
+    CLOSED = "closed"
+
+class FeedbackType(str, Enum):
+    FEEDBACK = "feedback"
+    SUGGESTION = "suggestion"
+    BUG_REPORT = "bug_report"
+    FEATURE_REQUEST = "feature_request"
+
+class Priority(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    URGENT = "urgent"
+
+# Enhanced Models for Feedback System
+class FeedbackBase(BaseModel):
+    title: str
+    description: str
+    category: FeedbackCategory
+    type: FeedbackType
+    rating: Optional[int] = Field(None, ge=1, le=5)  # 1-5 star rating
+    is_anonymous: bool = False
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
+
+class FeedbackCreate(FeedbackBase):
+    pass
+
+class Feedback(FeedbackBase):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    status: FeedbackStatus = FeedbackStatus.PENDING
+    priority: Priority = Priority.MEDIUM
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    admin_notes: Optional[str] = None
+    admin_response: Optional[str] = None
+
+class FeedbackUpdate(BaseModel):
+    status: Optional[FeedbackStatus] = None
+    priority: Optional[Priority] = None
+    admin_notes: Optional[str] = None
+    admin_response: Optional[str] = None
+
+class SuggestionBase(BaseModel):
+    title: str
+    description: str
+    category: FeedbackCategory
+    rating: Optional[int] = Field(None, ge=1, le=5)  # Interest rating
+    is_anonymous: bool = False
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
+    expected_benefit: Optional[str] = None
+
+class SuggestionCreate(SuggestionBase):
+    pass
+
+class Suggestion(SuggestionBase):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    status: FeedbackStatus = FeedbackStatus.PENDING
+    priority: Priority = Priority.MEDIUM
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    admin_notes: Optional[str] = None
+    admin_response: Optional[str] = None
+    votes: int = 0  # Community voting for suggestions
+
+class UserAnalytics(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: Optional[str] = None
+    page_path: str
+    action: str  # 'view', 'click', 'submit', etc.
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    user_agent: Optional[str] = None
+    session_id: Optional[str] = None
+
+class CategoryStats(BaseModel):
+    category: FeedbackCategory
+    feedback_count: int
+    suggestion_count: int
+    average_rating: Optional[float] = None
 class StatusCheck(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     client_name: str
