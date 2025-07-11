@@ -143,10 +143,176 @@ async def create_status_check(input: StatusCheckCreate):
     _ = await db.status_checks.insert_one(status_obj.dict())
     return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    status_checks = await db.status_checks.find().to_list(1000)
-    return [StatusCheck(**status_check) for status_check in status_checks]
+# Feedback and Suggestions API Endpoints
+
+@api_router.post("/feedback", response_model=Feedback)
+async def create_feedback(feedback: FeedbackCreate):
+    """Submit new feedback"""
+    feedback_dict = feedback.dict()
+    feedback_obj = Feedback(**feedback_dict)
+    await db.feedback.insert_one(feedback_obj.dict())
+    return feedback_obj
+
+@api_router.get("/feedback", response_model=List[Feedback])
+async def get_feedback(
+    status: Optional[FeedbackStatus] = None,
+    category: Optional[FeedbackCategory] = None,
+    priority: Optional[Priority] = None,
+    feedback_type: Optional[FeedbackType] = None,
+    limit: int = 50,
+    skip: int = 0
+):
+    """Get feedback with optional filtering"""
+    filter_dict = {}
+    if status:
+        filter_dict["status"] = status
+    if category:
+        filter_dict["category"] = category
+    if priority:
+        filter_dict["priority"] = priority
+    if feedback_type:
+        filter_dict["type"] = feedback_type
+    
+    feedback_list = await db.feedback.find(filter_dict).skip(skip).limit(limit).to_list(limit)
+    return [Feedback(**feedback) for feedback in feedback_list]
+
+@api_router.get("/feedback/{feedback_id}", response_model=Feedback)
+async def get_feedback_by_id(feedback_id: str):
+    """Get specific feedback by ID"""
+    feedback = await db.feedback.find_one({"id": feedback_id})
+    if not feedback:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    return Feedback(**feedback)
+
+@api_router.patch("/feedback/{feedback_id}", response_model=Feedback)
+async def update_feedback(feedback_id: str, update_data: FeedbackUpdate):
+    """Update feedback (admin function)"""
+    feedback = await db.feedback.find_one({"id": feedback_id})
+    if not feedback:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    
+    update_dict = update_data.dict(exclude_unset=True)
+    update_dict["updated_at"] = datetime.utcnow()
+    
+    await db.feedback.update_one({"id": feedback_id}, {"$set": update_dict})
+    updated_feedback = await db.feedback.find_one({"id": feedback_id})
+    return Feedback(**updated_feedback)
+
+@api_router.post("/suggestions", response_model=Suggestion)
+async def create_suggestion(suggestion: SuggestionCreate):
+    """Submit new suggestion"""
+    suggestion_dict = suggestion.dict()
+    suggestion_obj = Suggestion(**suggestion_dict)
+    await db.suggestions.insert_one(suggestion_obj.dict())
+    return suggestion_obj
+
+@api_router.get("/suggestions", response_model=List[Suggestion])
+async def get_suggestions(
+    status: Optional[FeedbackStatus] = None,
+    category: Optional[FeedbackCategory] = None,
+    priority: Optional[Priority] = None,
+    limit: int = 50,
+    skip: int = 0
+):
+    """Get suggestions with optional filtering"""
+    filter_dict = {}
+    if status:
+        filter_dict["status"] = status
+    if category:
+        filter_dict["category"] = category
+    if priority:
+        filter_dict["priority"] = priority
+    
+    suggestions_list = await db.suggestions.find(filter_dict).skip(skip).limit(limit).to_list(limit)
+    return [Suggestion(**suggestion) for suggestion in suggestions_list]
+
+@api_router.patch("/suggestions/{suggestion_id}", response_model=Suggestion)
+async def update_suggestion(suggestion_id: str, update_data: FeedbackUpdate):
+    """Update suggestion (admin function)"""
+    suggestion = await db.suggestions.find_one({"id": suggestion_id})
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    
+    update_dict = update_data.dict(exclude_unset=True)
+    update_dict["updated_at"] = datetime.utcnow()
+    
+    await db.suggestions.update_one({"id": suggestion_id}, {"$set": update_dict})
+    updated_suggestion = await db.suggestions.find_one({"id": suggestion_id})
+    return Suggestion(**updated_suggestion)
+
+@api_router.post("/suggestions/{suggestion_id}/vote")
+async def vote_suggestion(suggestion_id: str):
+    """Vote for a suggestion (community feature)"""
+    suggestion = await db.suggestions.find_one({"id": suggestion_id})
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    
+    await db.suggestions.update_one({"id": suggestion_id}, {"$inc": {"votes": 1}})
+    return {"message": "Vote recorded successfully"}
+
+@api_router.post("/analytics", response_model=UserAnalytics)
+async def track_user_analytics(analytics: UserAnalytics):
+    """Track user interactions for analytics"""
+    await db.analytics.insert_one(analytics.dict())
+    return analytics
+
+@api_router.get("/categories/stats", response_model=List[CategoryStats])
+async def get_category_stats():
+    """Get statistics for each category"""
+    stats = []
+    for category in FeedbackCategory:
+        # Count feedback in this category
+        feedback_count = await db.feedback.count_documents({"category": category})
+        suggestion_count = await db.suggestions.count_documents({"category": category})
+        
+        # Calculate average rating
+        feedback_ratings = await db.feedback.find(
+            {"category": category, "rating": {"$exists": True}}
+        ).to_list(None)
+        suggestion_ratings = await db.suggestions.find(
+            {"category": category, "rating": {"$exists": True}}
+        ).to_list(None)
+        
+        all_ratings = [f["rating"] for f in feedback_ratings if f.get("rating")] + \
+                     [s["rating"] for s in suggestion_ratings if s.get("rating")]
+        
+        avg_rating = sum(all_ratings) / len(all_ratings) if all_ratings else None
+        
+        stats.append(CategoryStats(
+            category=category,
+            feedback_count=feedback_count,
+            suggestion_count=suggestion_count,
+            average_rating=avg_rating
+        ))
+    
+    return stats
+
+@api_router.get("/admin/dashboard")
+async def get_admin_dashboard():
+    """Get admin dashboard data"""
+    # Get counts by status
+    total_feedback = await db.feedback.count_documents({})
+    total_suggestions = await db.suggestions.count_documents({})
+    pending_feedback = await db.feedback.count_documents({"status": FeedbackStatus.PENDING})
+    pending_suggestions = await db.suggestions.count_documents({"status": FeedbackStatus.PENDING})
+    high_priority = await db.feedback.count_documents({"priority": Priority.HIGH}) + \
+                   await db.suggestions.count_documents({"priority": Priority.HIGH})
+    
+    # Get recent feedback
+    recent_feedback = await db.feedback.find({}).sort("created_at", -1).limit(5).to_list(5)
+    recent_suggestions = await db.suggestions.find({}).sort("created_at", -1).limit(5).to_list(5)
+    
+    return {
+        "overview": {
+            "total_feedback": total_feedback,
+            "total_suggestions": total_suggestions,
+            "pending_feedback": pending_feedback,
+            "pending_suggestions": pending_suggestions,
+            "high_priority_items": high_priority
+        },
+        "recent_feedback": [Feedback(**f) for f in recent_feedback],
+        "recent_suggestions": [Suggestion(**s) for s in recent_suggestions]
+    }
 
 # Include the router in the main app
 app.include_router(api_router)
